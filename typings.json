@@ -1,0 +1,8 @@
+{
+  "globalDependencies": {
+    "node": "registry:env/node#6.0.0+20170213133316"
+  },
+  "dependencies": {
+    "debug": "registry:npm/debug#2.0.0+20170504163145"
+  }
+}
