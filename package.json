@@ -1,10 +1,12 @@
 {
   "name": "hdmi-cec",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "HDMI CEC library that exposes cec-client as an Typescript API.",
   "main": "dist/index.js",
+  "module": "dist/index.js",
+  "typings": "dist/index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "rm -rf dist/ && tsc"
   },
   "repository": {
     "type": "git",
