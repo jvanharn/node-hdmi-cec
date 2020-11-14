@@ -52,7 +52,7 @@ Javascript:
 ```javascript
 var cecRemote = require('hdmi-cec').Remote;
 
-// Create a new Remote helper, with the cec-monitor as argument.
+// Create a new Remote helper (called without any arguments, it will create a cec-client process itself, with the default client name)
 var remote = new cecRemote();
 
 // When any button is pressed on the remote, we receive the event:

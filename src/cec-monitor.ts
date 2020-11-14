@@ -9,6 +9,8 @@ import * as debuglib from 'debug';
 var debug = debuglib('cec:monitor');
 var debugRaw = debuglib('cec:monitor:raw');
 
+const logicalAddressAssignRegexp = /^DEBUG:[ \[\d\]\t]+AllocateLogicalAddresses - device '\d', type '[\w ]+', LA '(\w)'/g;
+
 /**
  * CEC Monitor Interface
  * 
@@ -35,6 +37,10 @@ export class CecMonitor extends EventEmitter {
         {
             match: /^TRAFFIC:/g,
             callback: this.processTraffic.bind(this)
+        },
+        {
+            match: logicalAddressAssignRegexp,
+            callback: this.setDeviceAddress.bind(this)
         }
     ];
 
@@ -55,15 +61,20 @@ export class CecMonitor extends EventEmitter {
 
     /**
      * @param deviceName The name of this monitor instance, as used on the cec-bus.
-     * @param deviceAddress The address/type/slot to use for this device on the CEC bus.
+     * @param deviceAddress The address/type/slot to use for this device on the CEC bus. If not available, will take next in same category!
      * @param monitorMode Whether or not to emit operation events for all messages decoded on the bus, or only messages being send to our device or the broadcasting address.
      */
     public constructor(
         public readonly deviceName: string = 'node-hdmi-cec',
         public readonly deviceAddress: LogicalAddress = LogicalAddress.RECORDINGDEVICE1,
-        public monitorMode: boolean = false
+        public monitorMode: boolean = false,
+        autostart: boolean = true
     ) {
         super();
+
+        if (autostart) {
+            this.start();
+        }
     }
 
     /**
@@ -83,8 +94,8 @@ export class CecMonitor extends EventEmitter {
         }
 
         if (this.deviceName != null) {
-            this.params.push('-d');
-            this.params.push(this.deviceName);
+            this.params.push('-t');
+            this.params.push(this.convertLogicalAddressToClientType(this.deviceAddress));
         }
 
         this.client = spawn(this.clientName, this.params);
@@ -94,7 +105,7 @@ export class CecMonitor extends EventEmitter {
 
         this.client.stdout.on('line', line => {
             this.emit('data', line);
-            debugRaw('rx: ' + line);
+            debugRaw(`rx: "${line}"`);
             this.processLine(line);
         });
     }
@@ -102,18 +113,21 @@ export class CecMonitor extends EventEmitter {
     /**
      * Stop the monitor class from listening and kill the cec-client process.
      */
-    public stop() {
+    public stop(): void {
         debug('stop (by parent)');
         this.emit('stop', this);
-        return this.client.kill('SIGINT');
+
+        if (this.client) {
+            this.client.kill('SIGINT');
+        }
     }
 
     /**
      * Called when the child process exits.
      */
-    private onClose() {
+    private onClose(): void {
         debug('stop (by child)');
-        return this.emit('stop', this);
+        this.emit('stop', this);
     }
 
     /**
@@ -121,7 +135,7 @@ export class CecMonitor extends EventEmitter {
      * 
      * @param message The raw message to send.
      */
-    public send(message: string) {
+    public send(message: string): boolean {
         return this.client.stdin.write(message + '\n');
     }
 
@@ -133,7 +147,7 @@ export class CecMonitor extends EventEmitter {
      * 
      * @param command List of the numeric representations of the commands to send.
      */
-    public sendCommand(...command: number[]) {
+    public sendCommand(...command: number[]): boolean {
         return this.send('tx ' + command.map(hex => hex.toString(16)).join(':'));
     }
 
@@ -144,7 +158,7 @@ export class CecMonitor extends EventEmitter {
      * @param opcode The operation to execute.
      * @param params List of the numeric representations of the parameters to send.
      */
-    public executeOperation(target: LogicalAddress, opcode: Opcode, params?: number[]) {
+    public executeOperation(target: LogicalAddress, opcode: Opcode, params?: number[]): boolean {
         var base = `tx ${this.deviceAddress.toString(16)}${target.toString(16)}:${opcode.toString(16)}`;
         if (params && params.length > 0) {
             return this.send(base + ':' + params.map(hex => hex.toString(16)).join(':'));
@@ -159,7 +173,7 @@ export class CecMonitor extends EventEmitter {
      * @param opcode The operation to execute.
      * @param param Boolean parameter to send.
      */
-    public executeOperationWithBoolean(target: LogicalAddress, opcode: Opcode, param: boolean) {
+    public executeOperationWithBoolean(target: LogicalAddress, opcode: Opcode, param: boolean): boolean {
         return this.executeOperation(target, opcode, [param ? 0x01 : 0x00]);
     }
 
@@ -170,7 +184,7 @@ export class CecMonitor extends EventEmitter {
      * @param opcode The operation to execute.
      * @param param Integer parameter to send.
      */
-    public executeOperationWithInteger(target: LogicalAddress, opcode: Opcode, param: number) {
+    public executeOperationWithInteger(target: LogicalAddress, opcode: Opcode, param: number): boolean {
         var bytes = [];
         var i = 3;
         do {
@@ -187,7 +201,7 @@ export class CecMonitor extends EventEmitter {
      * @param opcode The operation to execute.
      * @param param Integer parameter to send.
      */
-    public executeOperationWithString(target: LogicalAddress, opcode: Opcode, param: string) {
+    public executeOperationWithString(target: LogicalAddress, opcode: Opcode, param: string): boolean {
         return this.executeOperation(target, opcode, param.split('').map(x => x.charCodeAt(0)));
     }
 
@@ -196,8 +210,23 @@ export class CecMonitor extends EventEmitter {
      * 
      * @param command List of the numeric representations of the commands to send.
      */
-    public executeBroadcastOperation(opcode: Opcode, params?: number[]) {
+    public executeBroadcastOperation(opcode: Opcode, params?: number[]): boolean {
         return this.executeOperation(LogicalAddress.BROADCAST, opcode, params);
+    }
+
+    /**
+     * Processes a log line to set our own device address.
+     * 
+     * @param line The address to change to as extracted from the logs.
+     */
+    public setDeviceAddress(line: string): void {
+        var result = logicalAddressAssignRegexp.exec(line);
+        if (result == null) {
+            return;
+        }
+        
+        (this as any)['deviceAddress'] = parseInt(result[0], 16);
+        debug(`device address set to ${this.deviceAddress.toString(16)}`);
     }
 
     /**
@@ -205,33 +234,37 @@ export class CecMonitor extends EventEmitter {
      * 
      * @param line The line that was emitted by the cec-client.
      */
-    protected processLine(line: string) {
+    protected processLine(line: string): number {
         this.emit('line', line);
 
-        var result = [];
+        var executed = 0;
         for (var handler of this.stdinHandlers) {
-
-            var item: any;
             if ((handler as ContainsHandler).contains != null) {
                 if (line.indexOf((handler as ContainsHandler).contains) >= 0) {
-                    item = handler.callback(line);
+                    handler.callback(line);
+                    executed++;
                 }
             }
-            else if ((handler as MatchHandler).match != null) {
+            if ((handler as MatchHandler).match != null) {
                 var matches = line.match((handler as MatchHandler).match);
                 if (matches != null && matches.length > 0) {
-                    item = handler.callback(line);
+                    handler.callback(line);
+                    executed++;
                 }
-
             }
-            else if ((handler as FuncHandler).fn != null) {
+            if ((handler as FuncHandler).fn != null) {
                 if ((handler as FuncHandler).fn(line)) {
-                    item = handler.callback(line);
+                    handler.callback(line);
+                    executed++;
                 }
             }
-            result.push(item);
         }
-        return result;
+
+        if (executed > 0) {
+            debugRaw(`executed ${executed} handlers`);
+        }
+
+        return executed;
     }
 
 //region cec-client Monitor-mode Traffic Processing
@@ -351,6 +384,28 @@ export class CecMonitor extends EventEmitter {
         return false;
     }
 //endregion
+
+    /**
+     * Convert a logical address to an type argument usable with cec-client.
+     * @param address Address to convert
+     */
+    private convertLogicalAddressToClientType(address: LogicalAddress): string {
+        switch(address) {
+            case LogicalAddress.AUDIOSYSTEM:
+                return 'a';
+            case LogicalAddress.PLAYBACKDEVICE1:
+            case LogicalAddress.PLAYBACKDEVICE2:
+            case LogicalAddress.PLAYBACKDEVICE3:
+                return 'p';
+            case LogicalAddress.TUNER1:
+            case LogicalAddress.TUNER2:
+            case LogicalAddress.TUNER3:
+            case LogicalAddress.TUNER4:
+                return 't';
+            default:
+                return 'r';
+        }
+    }
 }
 
 export interface ContainsHandler {

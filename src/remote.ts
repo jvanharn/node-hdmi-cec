@@ -6,8 +6,8 @@ import { UserControlButton } from './models/user-control-buttons';
 import * as debuglib from 'debug';
 var debug = debuglib('cec:remote');
 
-const keyDownRegexp = /^DEBUG:[ \[\d\]]+key pressed: (\w)+ \((\d)\)/g;
-const keyUpRegexp = /^DEBUG:[ \[\d\]]+key released: (\w)+ \((\d)\)/g;
+const keyDownRegexp = /^DEBUG:[ \[\d\]\t]+key pressed: (\w+) \((\w+)\)/g;
+const keyUpRegexp = /^DEBUG:[ \[\d\]\t]+key released: (\w+) \((\w+)\)/g;
 
 /**
  * CEC-connected remote handler
@@ -48,11 +48,12 @@ export class Remote extends EventEmitter {
     private keyDownDecoder(message: string): void {
         var result = keyDownRegexp.exec(message);
         if (result == null) {
+            debug('unable to decode keydown message ', message);
             return;
         }
 
-        var keyName = result[0],
-            keyCode = parseInt(result[1]);
+        var keyName = result[1],
+            keyCode = parseInt(result[2], 16);
         debug(`received keydown for "${keyName}" (${keyCode})`);
         this.emit('keydown', {
             repeat: (this.currentKey === keyName),
@@ -73,11 +74,12 @@ export class Remote extends EventEmitter {
     private keyUpDecoder(message: string): void {
         var result = keyUpRegexp.exec(message);
         if (result == null) {
+            debug('unable to decode keyup message ', message);
             return;
         }
 
-        var keyName = result[0],
-            keyCode = parseInt(result[1]);
+        var keyName = result[1],
+            keyCode = parseInt(result[2], 16);
         debug(`received keyup for "${keyName}" (${keyCode})`);
         this.emit('keyup', {
             key: keyName,

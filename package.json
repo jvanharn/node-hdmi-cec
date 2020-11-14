@@ -1,6 +1,6 @@
 {
   "name": "hdmi-cec",
-  "version": "0.2.1",
+  "version": "0.2.8",
   "description": "HDMI CEC library that exposes cec-client as an Typescript API.",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -8,6 +8,10 @@
   "scripts": {
     "build": "rm -rf dist/ && tsc"
   },
+  "files": [
+    "dist/*",
+    "tsconfig.json"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jvanharn/node-hdmi-cec.git"
